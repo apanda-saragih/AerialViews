@@ -1,0 +1,9 @@
+{
+    "kotlin.languageServer.enabled": true,
+    "kotlin.debugAdapter.enabled": true,
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.gradle.enabled": true,
+    "java.import.gradle.wrapper.enabled": true,
+    "java.import.gradle.java.home": "/Users/apandasaragih/.local/share/mise/installs/java/21.0.2",
+    "java.home": "/Users/apandasaragih/.local/share/mise/installs/java/21.0.2"
+}

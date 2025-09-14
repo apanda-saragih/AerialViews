@@ -122,7 +122,7 @@ class WeatherService(
         updateJob =
             CoroutineScope(Dispatchers.IO).launch {
                 while (isActive) {
-                    val update = forecastUpdate()
+                    val update = weatherUpdate()
                     GlobalBus.post(update)
                     Timber.i("Next weather update in ${updateDelay.inWholeMinutes} minutes")
                     delay(updateDelay)
@@ -130,7 +130,7 @@ class WeatherService(
             }
     }
 
-    private suspend fun forecastUpdate(): WeatherEvent {
+    private suspend fun weatherUpdate(): WeatherEvent {
         return try {
             val key = BuildConfig.OPEN_WEATHER
             val lat = GeneralPrefs.weatherLocationLat.toDoubleOrNull()
@@ -158,7 +158,8 @@ class WeatherService(
                     if (weatherData != null) {
                         totalUpdates++
                         retryCount = 0 // Reset retry count on successful response
-                        processWeatherResponse(weatherData)
+                        val forecastResult = forecast5Days3HoursUpdate()
+                        processWeatherResponse(weatherData, forecastResult)
                     } else {
                         Timber.e("Received successful response but body was null")
                         WeatherEvent()
@@ -176,7 +177,7 @@ class WeatherService(
                     if (retryCount < maxRetries) {
                         retryCount++
                         delay(retryDelay) // Wait before retry
-                        return forecastUpdate() // Retry
+                        return weatherUpdate() // Retry
                     } else {
                         val error = "Max retries reached for server error - giving up"
                         Timber.e(error)
@@ -206,7 +207,127 @@ class WeatherService(
         }
     }
 
-    private fun processWeatherResponse(response: CurrentWeatherResponse): WeatherEvent {
+    private suspend fun forecast5Days3HoursUpdate(): ForecastEvent {
+        return try {
+            val key = BuildConfig.OPEN_WEATHER
+            val lat = GeneralPrefs.weatherLocationLat.toDoubleOrNull()
+            val lon = GeneralPrefs.weatherLocationLon.toDoubleOrNull()
+            val units =
+                if (GeneralPrefs.weatherTemperatureUnits ==
+                    null
+                ) {
+                    "metric"
+                } else {
+                    GeneralPrefs.weatherTemperatureUnits.toString().lowercase()
+                }
+            val language = WeatherLanguage.getLanguageCode(context)
+            Timber.i("Language: $language")
+
+            if (key.isEmpty() || lat == null || lon == null) {
+                Timber.e("Invalid location coordinates")
+                return ForecastEvent()
+            }
+
+            val response = openWeatherClient.getFiveDayForecast(lat, lon, key, units, language)
+            when {
+                response.isSuccessful -> {
+                    val weatherData = response.body()
+                    if (weatherData != null) {
+                        totalUpdates++
+                        retryCount = 0 // Reset retry count on successful response
+                        processForecastResponse(weatherData)
+                    } else {
+                        Timber.e("Received successful response but body was null")
+                        ForecastEvent()
+                    }
+                }
+                response.code() == 401 -> {
+                    val error = "Unauthorized access to weather API - cancelling weather updates"
+                    Timber.e(error)
+                    stop() // Cancel the job for unauthorized access
+                    FirebaseHelper.crashlyticsLogMessage(error)
+                    ForecastEvent()
+                }
+                response.code() in 500..599 -> {
+                    Timber.w("Server error (${response.code()}) - attempt ${retryCount + 1}/$maxRetries")
+                    if (retryCount < maxRetries) {
+                        retryCount++
+                        delay(retryDelay) // Wait before retry
+                        return forecast5Days3HoursUpdate() // Retry
+                    } else {
+                        val error = "Max retries reached for server error - giving up"
+                        Timber.e(error)
+                        FirebaseHelper.crashlyticsLogMessage(error)
+                        retryCount = 0
+                        ForecastEvent()
+                    }
+                }
+                response.code() == 429 -> {
+                    val error = "Rate limit exceeded - backing off"
+                    Timber.w(error)
+                    FirebaseHelper.crashlyticsLogMessage(error)
+                    delay(rateLimitDelay) // Back off for rate limiting
+                    ForecastEvent()
+                }
+                else -> {
+                    val error = "Failed to fetch weather data - HTTP ${response.code()}: ${response.message()}"
+                    Timber.e(error)
+                    FirebaseHelper.crashlyticsLogMessage(error)
+                    ForecastEvent()
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to fetch and parse weather data")
+            FirebaseHelper.crashlyticsException(e)
+            ForecastEvent()
+        }
+    }
+
+    private fun processForecastResponse(response: FiveDayForecastResponse): ForecastEvent {
+//        val timeAgo = calculateTimeAgo(response.dt)
+//        Timber.i("Forecast from $timeAgo")
+
+        val weatherEvents = mutableListOf<ForecastItemEvent>()
+
+        for (per3H in response.list) {
+            val weatherEvent = processForecastMainDataResponse(per3H, response.city.name)
+            weatherEvents.add(weatherEvent)
+            if (weatherEvents.size == 3) {
+                break
+            }
+        }
+
+        return ForecastEvent(response.city.name, weatherEvents)
+    }
+
+    private fun processForecastMainDataResponse(response: CurrentWeatherResponse, city: String): ForecastItemEvent {
+        val timeAgo = calculateTimeAgo(response.dt)
+        Timber.i("Forecast from $timeAgo")
+
+        val temperature = "${response.main.temp.roundToInt()}°"
+        val description =
+            response.weather
+                .first()
+                .description
+                .capitalise()
+        val wind = round(response.wind.speed)
+        val humidity = response.main.humidity
+        val code = response.weather.first().id
+        val type = response.weather.first().main
+        val icon = response.weather.first().icon
+
+        return ForecastItemEvent(
+            temperature = temperature,
+            icon = getWeatherIcon(code, type, icon),
+            summary = description,
+            city = city,
+            wind = "$wind km/h",
+            humidity = "$humidity%",
+        )
+    }
+
+    private fun processWeatherResponse(response: CurrentWeatherResponse,
+                                       forecastResult: ForecastEvent): WeatherEvent {
         val timeAgo = calculateTimeAgo(response.dt)
         Timber.i("Forecast from $timeAgo")
 
@@ -229,6 +350,7 @@ class WeatherService(
             city = response.name,
             wind = "$wind km/h",
             humidity = "$humidity%",
+            forecastEvent = forecastResult
         )
     }
 
@@ -258,4 +380,22 @@ data class WeatherEvent(
     val city: String = "",
     val wind: String = "",
     val humidity: String = "",
+    val time: String = "",
+    val forecastEvent: ForecastEvent = ForecastEvent(),
 )
+
+data class ForecastEvent(
+    val city: String = "",
+    val weatherEvents: MutableList<ForecastItemEvent> = arrayListOf(),
+)
+
+data class ForecastItemEvent(
+    val temperature: String = "",
+    val icon: Int = -1,
+    val summary: String = "",
+    val city: String = "",
+    val wind: String = "",
+    val humidity: String = "",
+    val time: String = "",
+)
+

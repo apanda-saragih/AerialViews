@@ -895,6 +895,7 @@
     <item>Temperature</item>
     <item>Icon</item>
     <item>Summary</item>
+    <item>Hour</item>
   </string-array>
   <string-array name="weather_forecast_type_values" translatable="false">
     <item>EMPTY</item>
@@ -902,6 +903,7 @@
     <item>TEMPERATURE</item>
     <item>ICON</item>
     <item>SUMMARY</item>
+    <item>HOUR</item>
   </string-array>
 
   <!-- Background Colors -->

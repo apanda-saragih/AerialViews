@@ -6,4 +6,5 @@ enum class ForecastType {
     TEMPERATURE,
     ICON,
     SUMMARY,
+//    HOUR,
 }

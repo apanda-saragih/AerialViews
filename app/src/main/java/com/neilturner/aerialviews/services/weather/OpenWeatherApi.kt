@@ -114,17 +114,18 @@ data class Wind(
 // 5 Day Forecast
 @Serializable
 data class FiveDayForecastResponse(
-    val list: List<ForecastItem>,
+    val list: List<CurrentWeatherResponse>,
     val city: City,
 )
 
-@Serializable
-data class ForecastItem(
-    val dt: Long,
-    val main: MainWeatherData,
-    val weather: List<Weather>,
-    @SerialName("dt_txt") val dtTxt: String,
-)
+//@Serializable
+//data class ForecastItem(
+//    val dt: Long,
+//    val main: MainWeatherData,
+//    val weather: List<Weather>,
+//    val wind: Wind,
+//    @SerialName("dt_txt") val dtTxt: String,
+//)
 
 @Serializable
 data class City(
