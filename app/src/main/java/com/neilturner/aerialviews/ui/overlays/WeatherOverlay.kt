@@ -1,6 +1,8 @@
 package com.neilturner.aerialviews.ui.overlays
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
@@ -43,6 +45,17 @@ constructor(
     init {
         orientation = VERTICAL
         alpha = 0f
+
+        // Add a semi-transparent background
+        val backgroundDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#80000000")) // 50% black
+            cornerRadius = 16f
+        }
+        background = backgroundDrawable
+
+        // Add padding so content isn't at the edge of the background
+        val padding = 24
+        setPadding(padding, padding, padding, padding)
     }
 
     fun style(
@@ -185,10 +198,10 @@ constructor(
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(16, 16, 16, 16)
             }
-            val hourText = if (index == 0) "Now" else forecast.hour.substringBefore(":")
+            val hourText = if (index == 0) "Now" else " " + forecast.hour.substringBefore(":")
             hourlyView.addView(createTextView(hourText, size * 0.8f))
             hourlyView.addView(createIconView(forecast.icon, size * 0.8f))
-            hourlyView.addView(createTextView(forecast.temp, size * 0.8f))
+            hourlyView.addView(createTextView(" " + forecast.temp, size * 0.8f))
             container.addView(hourlyView)
         }
         return scrollView
@@ -216,7 +229,7 @@ constructor(
             }
 
             val dayTextView = createTextView(forecast.day, size * 0.9f)
-            (dayTextView.layoutParams as LinearLayout.LayoutParams).width = maxWidth
+            (dayTextView.layoutParams as LinearLayout.LayoutParams).width = maxWidth + 100
 
             val maxTempTextView = createTextView(forecast.maxTemp, size * 0.9f)
             val minTempTextView = createTextView(forecast.minTemp, size * 0.9f).apply {

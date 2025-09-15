@@ -161,7 +161,7 @@ class WeatherService(
                 longitude = lon,
                 hourly = "temperature_2m,weather_code,relative_humidity_2m,precipitation_probability",
                 daily = "weather_code,temperature_2m_max,temperature_2m_min",
-                forecastDays = 10,
+                forecastDays = 7,
                 forecastHours = 24,
                 timezone = timezone
             )

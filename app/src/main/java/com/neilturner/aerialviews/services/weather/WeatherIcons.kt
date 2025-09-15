@@ -39,7 +39,7 @@ object WeatherIcons {
             85, 86 -> R.drawable.weather_snow
             95 -> R.drawable.weather_thunder
             96, 99 -> R.drawable.weather_thunder
-            else -> R.drawable.weather_clear // Default icon
+            else -> R.drawable.weather_unknown // Default icon
         }
     }
 
