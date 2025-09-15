@@ -6,6 +6,7 @@ import timber.log.Timber
 /**
  * Helper class for mapping OpenWeather condition codes to drawable resources
  * OpenWeather condition codes reference: https://openweathermap.org/weather-conditions
+ * OpenMeteo condition codes reference: https://open-meteo.com/en/docs/dwd-api
  */
 object WeatherIcons {
     // Weather condition code groups (first digit of the code)
@@ -20,6 +21,27 @@ object WeatherIcons {
     // Time of day indicators from OpenWeather icon codes
     private const val ICON_DAY = 'd'
     private const val ICON_NIGHT = 'n'
+
+    fun getMeteoWeatherIcon(conditionCode: Int): Int {
+        return when (conditionCode) {
+            0 -> R.drawable.weather_clear
+            1 -> R.drawable.weather_cloudy_light
+            2 -> R.drawable.weather_cloudy_light
+            3 -> R.drawable.weather_cloudy_light
+            45, 48 -> R.drawable.weather_mist
+            51, 53, 55 -> R.drawable.weather_rain_light
+            56, 57 -> R.drawable.weather_rain_heavy
+            61, 63, 65 -> R.drawable.weather_rain_heavy
+            66, 67 -> R.drawable.weather_rain_heavy
+            71, 73, 75 -> R.drawable.weather_snow
+            77 -> R.drawable.weather_snow
+            80, 81, 82 -> R.drawable.weather_rain_heavy
+            85, 86 -> R.drawable.weather_snow
+            95 -> R.drawable.weather_thunder
+            96, 99 -> R.drawable.weather_thunder
+            else -> R.drawable.weather_clear // Default icon
+        }
+    }
 
     /**
      * Maps OpenWeather condition codes to appropriate drawable resources

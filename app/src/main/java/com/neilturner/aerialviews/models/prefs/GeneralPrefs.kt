@@ -20,6 +20,12 @@ import com.neilturner.aerialviews.services.weather.WindSpeedUnit
 object GeneralPrefs : KotprefModel() {
     override val kotprefName = "${context.packageName}_preferences"
 
+    var weatherForecast by stringPref("TEMPERATURE,ICON,HOURLY_FORECAST,DAILY_FORECAST", "weather_forecast")
+    var weatherLocationLat by stringPref("", "weather_location_lat")
+    var weatherLocationLon by stringPref("", "weather_location_lon")
+    var weatherLocationTimezone by nullableStringPref(null, "weather_location_timezone")
+    var weatherTemperatureUnits by nullableStringPref(null, "weather_temperature_units")
+
     // Overlays - Top
     var slotTopLeft1 by nullableEnumValuePref(OverlayType.EMPTY, "slot_top_left1")
     var slotTopLeft2 by nullableEnumValuePref(OverlayType.EMPTY, "slot_top_left2")
@@ -55,8 +61,8 @@ object GeneralPrefs : KotprefModel() {
 
     // Weather
     var weatherLocationName by stringPref("", "weather_location_name")
-    var weatherLocationLat by stringPref("", "weather_location_lat")
-    var weatherLocationLon by stringPref("", "weather_location_lon")
+//    var weatherLocationLat by stringPref("", "weather_location_lat")
+//    var weatherLocationLon by stringPref("", "weather_location_lon")
 
     var weatherLine1 by stringPref("FORECAST", "weather_line1")
     var weatherLine1Size by stringPref("18", "weather_line1_size")
@@ -66,8 +72,8 @@ object GeneralPrefs : KotprefModel() {
     var weatherLine2Size by stringPref("18", "weather_line2_size")
     var weatherLine2Weight by stringPref("300", "weather_line2_weight")
 
-    var weatherForecast by stringPref("TEMPERATURE,ICON,SUMMARY", "weather_forecast")
-    var weatherTemperatureUnits by nullableEnumValuePref(TemperatureUnit.METRIC, "weather_temperature_units")
+//    var weatherForecast by stringPref("TEMPERATURE,ICON,SUMMARY", "weather_forecast")
+//    var weatherTemperatureUnits by nullableEnumValuePref(TemperatureUnit.METRIC, "weather_temperature_units")
 
     var weatherWind by stringPref("", "weather_wind")
     var weatherWindUnits by nullableEnumValuePref(WindSpeedUnit.METERS, "weather_temperature_units")

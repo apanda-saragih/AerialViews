@@ -18,6 +18,10 @@ import kotlinx.coroutines.launch
 import me.kosert.flowbus.GlobalBus
 import retrofit2.Retrofit
 import timber.log.Timber
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.TimeZone
 import kotlin.math.round
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.minutes
@@ -45,6 +49,16 @@ class WeatherService(
             .addConverterFactory(buildSerializer())
             .build()
             .create(OpenWeatherApi::class.java)
+    }
+
+    private val openMeteoClient by lazy {
+        Retrofit
+            .Builder()
+            .baseUrl("https://api.open-meteo.com/")
+            .client(buildOkHttpClient(context))
+            .addConverterFactory(buildSerializer())
+            .build()
+            .create(OpenMeteoApi::class.java)
     }
 
     suspend fun lookupLocation(query: String): List<LocationResponse> =
@@ -122,12 +136,127 @@ class WeatherService(
         updateJob =
             CoroutineScope(Dispatchers.IO).launch {
                 while (isActive) {
-                    val update = forecastUpdate()
+                    val update = meteoForecastUpdate()
                     GlobalBus.post(update)
                     Timber.i("Next weather update in ${updateDelay.inWholeMinutes} minutes")
                     delay(updateDelay)
                 }
             }
+    }
+
+    private suspend fun meteoForecastUpdate(): WeatherEvent {
+        return try {
+            val lat = GeneralPrefs.weatherLocationLat.toDoubleOrNull()
+            val lon = GeneralPrefs.weatherLocationLon.toDoubleOrNull()
+//            val timezone = GeneralPrefs.weatherLocationTimezone ?: TimeZone.getDefault().id
+            val timezone = TimeZone.getDefault().id
+
+            if (lat == null || lon == null) {
+                Timber.e("Invalid location coordinates")
+                return WeatherEvent()
+            }
+
+            val response = openMeteoClient.getForecast(
+                latitude = lat,
+                longitude = lon,
+                hourly = "temperature_2m,weather_code,relative_humidity_2m,precipitation_probability",
+                daily = "weather_code,temperature_2m_max,temperature_2m_min",
+                current = "temperature_2m,weather_code",
+                forecastDays = 10,
+                forecastHours = 24,
+                timezone = timezone
+            )
+
+            when {
+                response.isSuccessful -> {
+                    val weatherData = response.body()
+                    if (weatherData != null) {
+                        totalUpdates++
+                        retryCount = 0 // Reset retry count on successful response
+                        processMeteoWeatherResponse(weatherData)
+                    } else {
+                        Timber.e("Received successful response but body was null")
+                        WeatherEvent()
+                    }
+                }
+                response.code() in 500..599 -> {
+                    Timber.w("Server error (${response.code()}) - attempt ${retryCount + 1}/$maxRetries")
+                    if (retryCount < maxRetries) {
+                        retryCount++
+                        delay(retryDelay) // Wait before retry
+                        return meteoForecastUpdate() // Retry
+                    } else {
+                        val error = "Max retries reached for server error - giving up"
+                        Timber.e(error)
+                        FirebaseHelper.crashlyticsLogMessage(error)
+                        retryCount = 0
+                        WeatherEvent()
+                    }
+                }
+                response.code() == 429 -> {
+                    val error = "Rate limit exceeded - backing off"
+                    Timber.w(error)
+                    FirebaseHelper.crashlyticsLogMessage(error)
+                    delay(rateLimitDelay) // Back off for rate limiting
+                    WeatherEvent()
+                }
+                else -> {
+                    val error = "Failed to fetch weather data - HTTP ${response.code()}: ${response.message()}"
+                    Timber.e(error)
+                    FirebaseHelper.crashlyticsLogMessage(error)
+                    WeatherEvent()
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to fetch and parse weather data")
+            FirebaseHelper.crashlyticsException(e)
+            WeatherEvent()
+        }
+    }
+
+    private fun processMeteoWeatherResponse(response: OpenMeteoResponse): WeatherEvent {
+        val temperature = "${response.current.temperature2m.roundToInt()}°"
+        val code = response.current.weatherCode
+        val humidity = response.hourly.relativeHumidity2m.firstOrNull()?.toString() + "%"
+
+        val dailyForecasts = response.daily.time.mapIndexed { index, dateString ->
+            val date = LocalDate.parse(dateString, DateTimeFormatter.ISO_LOCAL_DATE)
+            val dayOfWeek = date.dayOfWeek.name.lowercase().capitalise()
+            val weatherCode = response.daily.weatherCode[index]
+            val maxTemp = response.daily.temperature2mMax[index].roundToInt()
+            val minTemp = response.daily.temperature2mMin[index].roundToInt()
+
+            DailyForecast(
+                day = dayOfWeek,
+                icon = WeatherIcons.getMeteoWeatherIcon(weatherCode),
+                maxTemp = "$maxTemp°",
+                minTemp = "$minTemp°"
+            )
+        }
+
+        val hourlyForecasts = response.hourly.time.mapIndexed { index, timeString ->
+            val time = LocalDateTime.parse(timeString)
+            val hour = time.format(DateTimeFormatter.ofPattern("HH:mm"))
+            val weatherCode = response.hourly.weatherCode[index]
+            val temp = response.hourly.temperature2m[index].roundToInt()
+
+            HourlyForecast(
+                hour = hour,
+                icon = WeatherIcons.getMeteoWeatherIcon(weatherCode),
+                temp = "$temp°"
+            )
+        }
+
+        return WeatherEvent(
+            temperature = temperature,
+            icon = WeatherIcons.getMeteoWeatherIcon(code),
+            summary = "", // OpenMeteo does not provide a summary
+            city = "", // OpenMeteo does not provide a city
+            wind = "", // OpenMeteo does not provide wind speed in this response
+            humidity = humidity,
+            daily = dailyForecasts,
+            hourly = hourlyForecasts
+        )
     }
 
     private suspend fun forecastUpdate(): WeatherEvent {
@@ -251,6 +380,19 @@ class WeatherService(
     }
 }
 
+data class HourlyForecast(
+    val hour: String = "",
+    val icon: Int = -1,
+    val temp: String = "",
+)
+
+data class DailyForecast(
+    val day: String = "",
+    val icon: Int = -1,
+    val maxTemp: String = "",
+    val minTemp: String = "",
+)
+
 data class WeatherEvent(
     val temperature: String = "",
     val icon: Int = -1,
@@ -258,4 +400,6 @@ data class WeatherEvent(
     val city: String = "",
     val wind: String = "",
     val humidity: String = "",
+    val daily: List<DailyForecast> = emptyList(),
+    val hourly: List<HourlyForecast> = emptyList(),
 )
