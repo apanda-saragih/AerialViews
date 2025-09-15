@@ -161,7 +161,6 @@ class WeatherService(
                 longitude = lon,
                 hourly = "temperature_2m,weather_code,relative_humidity_2m,precipitation_probability",
                 daily = "weather_code,temperature_2m_max,temperature_2m_min",
-                current = "temperature_2m,weather_code",
                 forecastDays = 10,
                 forecastHours = 24,
                 timezone = timezone
@@ -215,8 +214,6 @@ class WeatherService(
     }
 
     private fun processMeteoWeatherResponse(response: OpenMeteoResponse): WeatherEvent {
-        val temperature = "${response.current.temperature2m.roundToInt()}°"
-        val code = response.current.weatherCode
         val humidity = response.hourly.relativeHumidity2m.firstOrNull()?.toString() + "%"
 
         val dailyForecasts = response.daily.time.mapIndexed { index, dateString ->
@@ -247,9 +244,13 @@ class WeatherService(
             )
         }
 
+        val firstHourly = hourlyForecasts.firstOrNull()
+        val temperature = firstHourly?.temp ?: ""
+        val icon = firstHourly?.icon ?: -1
+
         return WeatherEvent(
             temperature = temperature,
-            icon = WeatherIcons.getMeteoWeatherIcon(code),
+            icon = icon,
             summary = "", // OpenMeteo does not provide a summary
             city = "", // OpenMeteo does not provide a city
             wind = "", // OpenMeteo does not provide wind speed in this response

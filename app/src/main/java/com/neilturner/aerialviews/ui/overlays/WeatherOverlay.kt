@@ -73,9 +73,6 @@ constructor(
     }
 
     private fun updateWeather(weather: WeatherEvent) {
-
-        Timber.d("PANDADEBUG2: $weather")
-
         if (layout.isEmpty()) return
         if (weather.temperature.isEmpty()) return
 
@@ -116,17 +113,15 @@ constructor(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        Timber.d("PANDADEBUG1: $weather")
-
         layout.split(",").forEach { item ->
             val trimmedItem = item.trim()
             try {
                 val forecastType = ForecastType.valueOf(trimmedItem)
                 when (forecastType) {
-                    ForecastType.CITY -> mainInfoContainer.addView(createTextView(weather.city))
-                    ForecastType.TEMPERATURE -> mainInfoContainer.addView(createTextView(weather.temperature))
-                    ForecastType.ICON -> mainInfoContainer.addView(createIconView(weather.icon))
-                    ForecastType.SUMMARY -> mainInfoContainer.addView(createTextView(weather.summary))
+                    ForecastType.CITY -> { /* Do nothing */ }
+                    ForecastType.TEMPERATURE -> { /* Do nothing */ }
+                    ForecastType.ICON -> { /* Do nothing */ }
+                    ForecastType.SUMMARY -> { /* Do nothing */ }
                     ForecastType.HOURLY_FORECAST -> {
                         if (mainInfoContainer.isNotEmpty()) {
                             addView(mainInfoContainer)
@@ -184,13 +179,14 @@ constructor(
         }
         scrollView.addView(container)
 
-        hourlyForecasts.forEach { forecast ->
+        hourlyForecasts.forEachIndexed { index, forecast ->
             val hourlyView = LinearLayout(context).apply {
                 orientation = VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(16, 16, 16, 16)
             }
-            hourlyView.addView(createTextView(forecast.hour, size * 0.8f))
+            val hourText = if (index == 0) "Now" else forecast.hour.substringBefore(":")
+            hourlyView.addView(createTextView(hourText, size * 0.8f))
             hourlyView.addView(createIconView(forecast.icon, size * 0.8f))
             hourlyView.addView(createTextView(forecast.temp, size * 0.8f))
             container.addView(hourlyView)
@@ -201,8 +197,16 @@ constructor(
     private fun createDailyForecastView(dailyForecasts: List<DailyForecast>): View {
         val container = LinearLayout(context).apply {
             orientation = VERTICAL
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         }
+
+        val textPaint = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, size * 0.9f)
+            typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+        }.paint
+
+        val dayNames = dailyForecasts.map { it.day }
+        val maxWidth = dayNames.map { textPaint.measureText(it) }.maxOrNull()?.toInt() ?: 0
 
         dailyForecasts.forEach { forecast ->
             val dailyView = LinearLayout(context).apply {
@@ -210,19 +214,17 @@ constructor(
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, 8, 0, 8)
             }
+
             val dayTextView = createTextView(forecast.day, size * 0.9f)
+            (dayTextView.layoutParams as LinearLayout.LayoutParams).width = maxWidth
+
             val maxTempTextView = createTextView(forecast.maxTemp, size * 0.9f)
             val minTempTextView = createTextView(forecast.minTemp, size * 0.9f).apply {
                 alpha = 0.6f
             }
             val iconView = createIconView(forecast.icon, size * 0.9f)
 
-            val spacer = View(context).apply {
-                layoutParams = LayoutParams(0, 0, 1f)
-            }
-
             dailyView.addView(dayTextView)
-            dailyView.addView(spacer)
             dailyView.addView(iconView)
             dailyView.addView(maxTempTextView)
             dailyView.addView(minTempTextView)

@@ -14,7 +14,6 @@ interface OpenMeteoApi {
         @Query("longitude") longitude: Double,
         @Query("hourly") hourly: String,
         @Query("daily") daily: String,
-        @Query("current") current: String,
         @Query("forecast_days") forecastDays: Int,
         @Query("forecast_hours") forecastHours: Int,
         @Query("timezone") timezone: String,
@@ -26,19 +25,8 @@ data class OpenMeteoResponse(
     val latitude: Double,
     val longitude: Double,
     val timezone: String,
-    val current: Current,
     val hourly: Hourly,
     val daily: Daily
-)
-
-@Serializable
-data class Current(
-    val time: String,
-    val interval: Int,
-    @SerialName("temperature_2m")
-    val temperature2m: Double,
-    @SerialName("weather_code")
-    val weatherCode: Int
 )
 
 @Serializable
