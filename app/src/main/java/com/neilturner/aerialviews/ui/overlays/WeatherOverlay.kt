@@ -1,8 +1,13 @@
 package com.neilturner.aerialviews.ui.overlays
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -11,7 +16,9 @@ import androidx.core.widget.TextViewCompat
 import com.neilturner.aerialviews.R
 import com.neilturner.aerialviews.models.enums.OverlayType
 import com.neilturner.aerialviews.models.prefs.GeneralPrefs
+import com.neilturner.aerialviews.services.weather.DailyForecast
 import com.neilturner.aerialviews.services.weather.ForecastType
+import com.neilturner.aerialviews.services.weather.HourlyForecast
 import com.neilturner.aerialviews.services.weather.WeatherEvent
 import com.neilturner.aerialviews.utils.FontHelper
 import me.kosert.flowbus.EventsReceiver
@@ -19,197 +26,236 @@ import me.kosert.flowbus.subscribe
 import timber.log.Timber
 
 class WeatherOverlay
-    @JvmOverloads
-    constructor(
-        context: Context,
-        attrs: AttributeSet? = null,
-        defStyleAttr: Int = 0,
-    ) : LinearLayout(context, attrs, defStyleAttr) {
-        var type = OverlayType.WEATHER1
-        private val receiver = EventsReceiver()
-        private var overlayItems: List<OverlayItem> = emptyList()
-        private var layout = ""
-        private var previousWeather: WeatherEvent? = null
-        private val fadeAnimationDuration = 300L
+@JvmOverloads
+constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0,
+) : LinearLayout(context, attrs, defStyleAttr) {
+    var type = OverlayType.WEATHER1
+    private val receiver = EventsReceiver()
+    private var layout = ""
+    private var previousWeather: WeatherEvent? = null
+    private val fadeAnimationDuration = 300L
 
-        private var font = ""
-        private var size = 0f
-        private var weight = ""
+    private var font = ""
+    private var size = 0f
+    private var weight = ""
 
-        sealed class OverlayItem {
-            data class TextItem(
-                val text: String,
-            ) : OverlayItem()
+    init {
+        orientation = VERTICAL
+        alpha = 0f
 
-            data class ImageItem(
-                val imageResId: Int,
-            ) : OverlayItem()
+        // Add a semi-transparent background
+        val backgroundDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#80000000")) // 50% black
+            cornerRadius = 16f
+        }
+        background = backgroundDrawable
+
+        // Add padding so content isn't at the edge of the background
+        val padding = 24
+        setPadding(padding, padding, padding, padding)
+    }
+
+    fun style(
+        font: String,
+        size: Float,
+        weight: String,
+    ) {
+        this.font = font
+        this.size = size
+        this.weight = weight
+    }
+
+    fun layout(layout: String) {
+        this.layout = layout
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        receiver.subscribe { weather: WeatherEvent ->
+            Timber.d("$weather")
+            updateWeather(weather)
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        receiver.unsubscribe()
+    }
+
+    private fun updateWeather(weather: WeatherEvent) {
+        if (layout.isEmpty()) return
+        if (weather.temperature.isEmpty()) return
+
+        if (previousWeather == weather) {
+            Timber.d("Weather data unchanged, skipping UI update")
+            return
         }
 
-        init {
-            orientation = HORIZONTAL
-            alpha = 0f
+        if (previousWeather == null) {
+            previousWeather = weather
+            updateOverlayContent(weather)
+            animate()
+                .alpha(1f)
+                .setDuration(fadeAnimationDuration)
+                .start()
+            return
         }
 
-        fun style(
-            font: String,
-            size: Float,
-            weight: String,
-        ) {
-            this.font = font
-            this.size = size
-            this.weight = weight
-        }
+        previousWeather = weather
 
-        fun layout(layout: String) {
-            this.layout = layout
-        }
-
-        override fun onAttachedToWindow() {
-            super.onAttachedToWindow()
-            receiver.subscribe { weather: WeatherEvent ->
-                Timber.d("$weather")
-                updateWeather(weather)
-            }
-        }
-
-        override fun onDetachedFromWindow() {
-            super.onDetachedFromWindow()
-            receiver.unsubscribe()
-        }
-
-        private fun updateWeather(weather: WeatherEvent) {
-            if (layout.isEmpty()) return
-            if (weather.temperature.isEmpty()) return
-
-            // Check if the new weather data is the same as the previous data
-            if (previousWeather == weather) {
-                Timber.d("Weather data unchanged, skipping UI update")
-                return
-            }
-
-            // If this is the first weather update, fade in directly
-            if (previousWeather == null) {
-                previousWeather = weather
+        animate()
+            .alpha(0f)
+            .setDuration(fadeAnimationDuration)
+            .withEndAction {
                 updateOverlayContent(weather)
                 animate()
                     .alpha(1f)
                     .setDuration(fadeAnimationDuration)
                     .start()
-                return
-            }
+            }.start()
+    }
 
-            // Store current weather for next comparison
-            previousWeather = weather
+    private fun updateOverlayContent(weather: WeatherEvent) {
+        removeAllViews()
 
-            // Fade out
-            animate()
-                .alpha(0f)
-                .setDuration(fadeAnimationDuration)
-                .withEndAction {
-                    // Update content when fade out is complete
-                    updateOverlayContent(weather)
-
-                    // Fade back in
-                    animate()
-                        .alpha(1f)
-                        .setDuration(fadeAnimationDuration)
-                        .start()
-                }.start()
+        val mainInfoContainer = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
 
-        private fun updateOverlayContent(weather: WeatherEvent) {
-            overlayItems = emptyList()
-
-            layout.split(",").forEach { item ->
-                val trimmedItem = item.trim()
-                try {
-                    val forecastType = ForecastType.valueOf(trimmedItem)
-                    when (forecastType) {
-                        ForecastType.CITY -> overlayItems = overlayItems + OverlayItem.TextItem(weather.city)
-                        ForecastType.TEMPERATURE -> overlayItems = overlayItems + OverlayItem.TextItem(weather.temperature)
-                        ForecastType.ICON -> overlayItems = overlayItems + OverlayItem.ImageItem(weather.icon)
-                        ForecastType.SUMMARY -> overlayItems = overlayItems + OverlayItem.TextItem(weather.summary)
-                        ForecastType.EMPTY -> { /* Do nothing */ }
-                    }
-                } catch (e: IllegalArgumentException) {
-                    Timber.e("Invalid weather info item: $trimmedItem")
-                }
-            }
-
-            setupViews()
-        }
-
-        private fun setupViews() {
-            removeAllViews()
-
-            val iconSize = calculateIconSize(size)
-            val itemMargin = 16
-
-            overlayItems.forEach { item ->
-                when (item) {
-                    is OverlayItem.TextItem -> {
-                        val textView =
-                            TextView(context).apply {
-                                text = item.text
-                            }
-                        TextViewCompat.setTextAppearance(textView, R.style.OverlayText)
-
-                        val params = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
-                        params.gravity = android.view.Gravity.CENTER_VERTICAL
-
-                        // Check if this item should have a margin
-                        // No margin if previous item is an image or if this is the first item
-                        val previousItemIsImage =
-                            overlayItems.indexOf(item) > 0 &&
-                                overlayItems[overlayItems.indexOf(item) - 1] is OverlayItem.ImageItem
-
-                        if (isNotEmpty() && !previousItemIsImage) {
-                            params.leftMargin = itemMargin
+        layout.split(",").forEach { item ->
+            val trimmedItem = item.trim()
+            try {
+                val forecastType = ForecastType.valueOf(trimmedItem)
+                when (forecastType) {
+                    ForecastType.CITY -> { /* Do nothing */ }
+                    ForecastType.TEMPERATURE -> { /* Do nothing */ }
+                    ForecastType.ICON -> { /* Do nothing */ }
+                    ForecastType.SUMMARY -> { /* Do nothing */ }
+                    ForecastType.HOURLY_FORECAST -> {
+                        if (mainInfoContainer.isNotEmpty()) {
+                            addView(mainInfoContainer)
                         }
-
-                        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-                        textView.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
-                        textView.layoutParams = params
-
-                        Timber.d("Adding text view with text: ${item.text}")
-                        addView(textView)
+                        addView(createHourlyForecastView(weather.hourly))
                     }
-
-                    is OverlayItem.ImageItem -> {
-                        // Use our custom SvgImageView instead of regular ImageView
-                        val imageView =
-                            SvgImageView(context).apply {
-                                setSvgResource(item.imageResId)
-                            }
-
-                        val params = LayoutParams(iconSize, iconSize)
-                        params.gravity = android.view.Gravity.BOTTOM
-
-                        imageView.layoutParams = params
-                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
-
-                        addView(imageView)
+                    ForecastType.DAILY_FORECAST -> {
+                        if (mainInfoContainer.isNotEmpty() && mainInfoContainer.parent == null) {
+                            addView(mainInfoContainer)
+                        }
+                        addView(createDailyForecastView(weather.daily))
                     }
+                    ForecastType.EMPTY -> { /* Do nothing */ }
                 }
+            } catch (e: IllegalArgumentException) {
+                Timber.e("Invalid weather info item: $trimmedItem")
             }
         }
 
-        private fun calculateIconSize(size: Float): Int {
-            // Get text metrics for the given size
-            val textPaint =
-                TextView(context)
-                    .apply {
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-                        typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
-                    }.paint
-
-            // Calculate approximate text height based on text metrics
-            val textHeight = textPaint.fontMetrics.let { it.descent - it.ascent }
-
-            // Use text height directly for icon size to maintain visual balance
-            val iconSize = textHeight * 1.3f
-            Timber.d("Text size: ${size}sp, Text height: $textHeight, Icon size: $iconSize")
-            return iconSize.toInt()
+        if (mainInfoContainer.isNotEmpty() && mainInfoContainer.parent == null) {
+            addView(mainInfoContainer)
         }
     }
+
+    private fun createTextView(text: String, customSize: Float = size): TextView {
+        return TextView(context).apply {
+            this.text = text
+            TextViewCompat.setTextAppearance(this, R.style.OverlayText)
+            val params = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            params.gravity = Gravity.CENTER_VERTICAL
+            params.marginEnd = 16
+            this.setTextSize(TypedValue.COMPLEX_UNIT_SP, customSize)
+            this.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+            this.layoutParams = params
+        }
+    }
+
+    private fun createIconView(imageResId: Int, customSize: Float = size): ImageView {
+        val iconSize = calculateIconSize(customSize)
+        return SvgImageView(context).apply {
+            setSvgResource(imageResId)
+            val params = LayoutParams(iconSize, iconSize)
+            params.gravity = Gravity.BOTTOM
+            layoutParams = params
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+    }
+
+    private fun createHourlyForecastView(hourlyForecasts: List<HourlyForecast>): View {
+        val scrollView = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val container = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+        }
+        scrollView.addView(container)
+
+        hourlyForecasts.forEachIndexed { index, forecast ->
+            val hourlyView = LinearLayout(context).apply {
+                orientation = VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(16, 16, 16, 16)
+            }
+            val hourText = if (index == 0) "Now" else " " + forecast.hour.substringBefore(":")
+            hourlyView.addView(createTextView(hourText, size * 0.8f))
+            hourlyView.addView(createIconView(forecast.icon, size * 0.8f))
+            hourlyView.addView(createTextView(" " + forecast.temp, size * 0.8f))
+            container.addView(hourlyView)
+        }
+        return scrollView
+    }
+
+    private fun createDailyForecastView(dailyForecasts: List<DailyForecast>): View {
+        val container = LinearLayout(context).apply {
+            orientation = VERTICAL
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+        }
+
+        val textPaint = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, size * 0.9f)
+            typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+        }.paint
+
+        val dayNames = dailyForecasts.map { it.day }
+        val maxWidth = dayNames.map { textPaint.measureText(it) }.maxOrNull()?.toInt() ?: 0
+
+        dailyForecasts.forEach { forecast ->
+            val dailyView = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+            }
+
+            val dayTextView = createTextView(forecast.day, size * 0.9f)
+            (dayTextView.layoutParams as LinearLayout.LayoutParams).width = maxWidth + 100
+
+            val maxTempTextView = createTextView(forecast.maxTemp, size * 0.9f)
+            val minTempTextView = createTextView(forecast.minTemp, size * 0.9f).apply {
+                alpha = 0.6f
+            }
+            val iconView = createIconView(forecast.icon, size * 0.9f)
+
+            dailyView.addView(dayTextView)
+            dailyView.addView(iconView)
+            dailyView.addView(maxTempTextView)
+            dailyView.addView(minTempTextView)
+            container.addView(dailyView)
+        }
+        return container
+    }
+
+    private fun calculateIconSize(size: Float): Int {
+        val textPaint =
+            TextView(context)
+                .apply {
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+                    typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+                }.paint
+        val textHeight = textPaint.fontMetrics.let { it.descent - it.ascent }
+        val iconSize = textHeight * 1.3f
+        Timber.d("Text size: ${size}sp, Text height: $textHeight, Icon size: $iconSize")
+        return iconSize.toInt()
+    }
+}

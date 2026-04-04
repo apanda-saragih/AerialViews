@@ -49,6 +49,15 @@ interface OpenWeatherApi {
         @Query("appid") apiKey: String,
         @Query("lang") language: String = "en",
     ): Response<List<LocationResponse>>
+
+    @GET("data/2.5/weather")
+    suspend fun getWeatherOpenMeteo(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("appid") apiKey: String,
+        @Query("units") units: String = "metric",
+        @Query("lang") language: String = "en",
+    ): Response<CurrentWeatherResponse>
 }
 
 // Location
