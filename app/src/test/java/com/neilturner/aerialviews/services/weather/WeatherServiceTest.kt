@@ -11,6 +11,7 @@ import retrofit2.Response
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import java.time.ZonedDateTime
 
 @DisplayName("Weather Service Tests")
 internal class WeatherServiceTest {
@@ -46,31 +47,71 @@ internal class WeatherServiceTest {
     }
 
     @Test
-    @DisplayName("Should aggregate forecast response into requested number of days")
+    @DisplayName("Should aggregate forecast response into 24 hour slots")
     fun shouldAggregateForecastResponse() {
         val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
-        val today = LocalDate.of(2026, 4, 3)
+        val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
         val response =
             FiveDayForecastResponse(
                 list =
                     listOf(
-                        forecastItem("2026-04-03T09:00:00", 12.0, 10.0, "01d"),
                         forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d"),
-                        forecastItem("2026-04-04T12:00:00", 18.0, 11.0, "02d"),
-                        forecastItem("2026-04-05T12:00:00", 13.0, 7.0, "10d"),
-                        forecastItem("2026-04-06T12:00:00", 9.0, 4.0, "13d"),
+                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "02d"),
+                        forecastItem("2026-04-03T18:00:00", 16.0, 10.0, "02d"),
+                        forecastItem("2026-04-04T00:00:00", 12.0, 8.0, "10d"),
+                        forecastItem("2026-04-04T12:00:00", 17.0, 11.0, "01d"),
+                        forecastItem("2026-04-05T12:00:00", 9.0, 4.0, "13d"), // 48h later, should be excluded
                     ),
                 city = City(name = "Dublin", country = "IE", timezone = 0),
             )
 
-        val event = service.mapForecastResponse(response, today = today, city = "Custom City", maxDays = 3)
+        val event =
+            service.mapForecastResponse(
+                response = response,
+                currentTime = currentZoned,
+                city = "Custom City",
+                maxHours = 24,
+                is24Hour = false,
+            )
 
         assertEquals("Custom City", event.city)
-        assertEquals(3, event.days.size)
+        assertEquals(5, event.days.size)
+        assertEquals("Now", event.days[0].dayName)
         assertEquals("15°", event.days[0].tempHigh)
-        assertEquals("9°", event.days[0].tempLow)
+        assertEquals("", event.days[0].tempLow)
+        assertEquals("15", event.days[1].dayName)
         assertEquals("18°", event.days[1].tempHigh)
-        assertEquals("7°", event.days[2].tempLow)
+    }
+
+    @Test
+    @DisplayName("Should format hours as 24-hour when requested")
+    fun shouldFormatHoursAs24Hour() {
+        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
+        val response =
+            FiveDayForecastResponse(
+                list =
+                    listOf(
+                        forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d"),
+                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "02d"),
+                        forecastItem("2026-04-03T23:00:00", 11.0, 8.0, "02d"),
+                    ),
+                city = City(name = "Dublin", country = "IE", timezone = 0),
+            )
+
+        val event =
+            service.mapForecastResponse(
+                response = response,
+                currentTime = currentZoned,
+                city = "Custom City",
+                maxHours = 24,
+                is24Hour = true,
+            )
+
+        assertEquals(3, event.days.size)
+        assertEquals("Now", event.days[0].dayName)
+        assertEquals("15", event.days[1].dayName)
+        assertEquals("23", event.days[2].dayName)
     }
 
     @Test
@@ -153,11 +194,45 @@ internal class WeatherServiceTest {
             assertNull(result.forecast)
         }
 
+    @Test
+    @DisplayName("Should parse probability of precipitation into percentage")
+    fun shouldParseProbabilityOfPrecipitation() {
+        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
+        val response =
+            FiveDayForecastResponse(
+                list =
+                    listOf(
+                        forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d", pop = 0.0),
+                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "10d", pop = 0.65),
+                        forecastItem("2026-04-03T18:00:00", 16.0, 10.0, "10d", pop = 0.20),
+                        forecastItem("2026-04-03T21:00:00", 14.0, 9.0, "02d", pop = null),
+                    ),
+                city = City(name = "Dublin", country = "IE", timezone = 0),
+            )
+
+        val event =
+            service.mapForecastResponse(
+                response = response,
+                currentTime = currentZoned,
+                city = "Dublin",
+                maxHours = 24,
+                is24Hour = false,
+            )
+
+        assertEquals(4, event.days.size)
+        assertEquals(0, event.days[0].pop)
+        assertEquals(65, event.days[1].pop)
+        assertEquals(20, event.days[2].pop)
+        assertEquals(0, event.days[3].pop)
+    }
+
     private fun forecastItem(
         dateTime: String,
         tempMax: Double,
         tempMin: Double,
         icon: String,
+        pop: Double? = null,
     ): ForecastItem {
         val instant = LocalDateTime.parse(dateTime).toEpochSecond(ZoneOffset.UTC)
         return ForecastItem(
@@ -174,6 +249,7 @@ internal class WeatherServiceTest {
             weather = listOf(Weather(id = 800, main = "Clear", description = "clear sky", icon = icon)),
             wind = Wind(speed = 5.4, deg = 90),
             dtTxt = dateTime.replace('T', ' '),
+            pop = pop,
         )
     }
 
@@ -232,14 +308,14 @@ private class FakeOpenWeatherApi : OpenWeatherApi {
         language: String,
     ): Response<FiveDayForecastResponse> {
         forecastCalls++
-        val today = LocalDate.now(ZoneOffset.UTC)
+        val now = LocalDateTime.now(ZoneOffset.UTC)
         return Response.success(
             FiveDayForecastResponse(
                 list =
                     listOf(
-                        fakeForecastItem(today.atTime(12, 0).toString(), 15.0, 9.0),
-                        fakeForecastItem(today.plusDays(1).atTime(12, 0).toString(), 17.0, 10.0),
-                        fakeForecastItem(today.plusDays(2).atTime(12, 0).toString(), 14.0, 8.0),
+                        fakeForecastItem(now.toString(), 15.0, 9.0),
+                        fakeForecastItem(now.plusHours(3).toString(), 17.0, 10.0),
+                        fakeForecastItem(now.plusHours(6).toString(), 14.0, 8.0),
                     ),
                 city = City(name = "Dublin", country = "IE", timezone = 0),
             ),

@@ -108,6 +108,7 @@ data class ForecastItem(
     val weather: List<Weather>,
     val wind: Wind,
     @SerialName("dt_txt") val dtTxt: String,
+    val pop: Double? = null,
 )
 
 @Serializable

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import com.neilturner.aerialviews.BuildConfig
 import com.neilturner.aerialviews.data.network.JsonHelper.buildSerializer
+import com.neilturner.aerialviews.models.enums.ClockType
 import com.neilturner.aerialviews.models.prefs.GeneralPrefs
 import com.neilturner.aerialviews.services.weather.NetworkHelpers.buildOkHttpClient
 import com.neilturner.aerialviews.utils.FirebaseHelper
@@ -20,6 +21,7 @@ import timber.log.Timber
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.round
@@ -189,6 +191,7 @@ class WeatherService(
             currentWeatherCity = GeneralPrefs.weatherLocationCustomName,
             forecastCity = GeneralPrefs.weatherLocationCustomName,
             forecastDays = GeneralPrefs.weatherLine2Days.toIntOrNull() ?: 5,
+            is24Hour = is24HourTimeFormat(),
         )
 
     internal suspend fun fetchWeatherData(
@@ -223,16 +226,15 @@ class WeatherService(
             forecastEvent =
                 response?.let {
                     val timezoneOffset = it.city.timezone.toLong()
-                    val today =
-                        ZonedDateTime
-                            .now(ZoneId.ofOffset("UTC", java.time.ZoneOffset.ofTotalSeconds(timezoneOffset.toInt())))
-                            .toLocalDate()
+                    val zoneOffset = java.time.ZoneOffset.ofTotalSeconds(timezoneOffset.toInt())
+                    val nowZoned = ZonedDateTime.now(ZoneId.ofOffset("UTC", zoneOffset))
 
                     mapForecastResponse(
                         response = it,
-                        today = today,
+                        currentTime = nowZoned,
                         city = displayConfig.forecastCity.ifEmpty { it.city.name },
-                        maxDays = displayConfig.forecastDays,
+                        maxHours = 24,
+                        is24Hour = displayConfig.is24Hour,
                     )
                 }
         }
@@ -410,52 +412,97 @@ class WeatherService(
 
     internal fun mapForecastResponse(
         response: FiveDayForecastResponse,
-        today: java.time.LocalDate,
+        currentTime: ZonedDateTime =
+            ZonedDateTime.now(ZoneId.ofOffset("UTC", java.time.ZoneOffset.ofTotalSeconds(response.city.timezone))),
         city: String,
-        maxDays: Int,
+        maxHours: Int = 24,
+        is24Hour: Boolean = false,
     ): ForecastEvent {
         val timezoneOffset = response.city.timezone.toLong()
-        val forecastDays = aggregateForecastByDay(response.list, today, timezoneOffset)
-        val limitedDays = forecastDays.take(maxDays)
+        val forecastSlots =
+            aggregateForecastByHour(
+                items = response.list,
+                currentTime = currentTime,
+                timezoneOffset = timezoneOffset,
+                maxHours = maxHours,
+                is24Hour = is24Hour,
+            )
 
-        Timber.i("Processed forecast: ${limitedDays.size} days for ${response.city.name}")
-        return ForecastEvent(days = limitedDays, city = city)
+        Timber.i("Processed forecast: ${forecastSlots.size} slots for ${response.city.name}")
+        return ForecastEvent(days = forecastSlots, city = city)
     }
 
-    private fun aggregateForecastByDay(
+    internal fun aggregateForecastByHour(
         items: List<ForecastItem>,
-        today: java.time.LocalDate,
+        currentTime: ZonedDateTime,
         timezoneOffset: Long,
+        maxHours: Int = 24,
+        is24Hour: Boolean = false,
     ): List<ForecastDay> {
         val zoneOffset = java.time.ZoneOffset.ofTotalSeconds(timezoneOffset.toInt())
+        val currentEpoch = currentTime.toEpochSecond()
+        val endEpoch = currentEpoch + (maxHours * 3600)
 
-        return items
-            .groupBy { item ->
-                Instant.ofEpochSecond(item.dt).atOffset(zoneOffset).toLocalDate()
-            }.filterKeys { !it.isBefore(today) }
-            .toSortedMap()
-            .map { (date, dayItems) ->
-                val tempHigh = dayItems.maxOf { it.main.tempMax }.roundToInt()
-                val tempLow = dayItems.minOf { it.main.tempMin }.roundToInt()
+        // Filter items within the next maxHours (including current slot up to 90 mins in the past)
+        val relevantItems =
+            items
+                .filter { item -> item.dt in (currentEpoch - 5400)..endEpoch }
+                .sortedBy { it.dt }
 
-                val middayItem =
-                    dayItems.minByOrNull { item ->
-                        val hour = Instant.ofEpochSecond(item.dt).atOffset(zoneOffset).hour
-                        kotlin.math.abs(hour - 12)
-                    } ?: dayItems.first()
+        if (relevantItems.isEmpty()) {
+            return emptyList()
+        }
 
-                val weatherInfo = middayItem.weather.first()
-                val icon = getWeatherIcon(weatherInfo.id, weatherInfo.main, weatherInfo.icon)
-                val dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+        return relevantItems.mapIndexed { index, item ->
+            val isFirstAndCurrent = index == 0 && kotlin.math.abs(item.dt - currentEpoch) <= 5400
+            val timeLabel =
+                if (isFirstAndCurrent) {
+                    "Now"
+                } else {
+                    val itemTime = Instant.ofEpochSecond(item.dt).atOffset(zoneOffset)
+                    itemTime.format(DateTimeFormatter.ofPattern("HH", Locale.getDefault()))
+                }
 
-                ForecastDay(
-                    dayName = dayName,
-                    icon = icon,
-                    tempHigh = "$tempHigh°",
-                    tempLow = "$tempLow°",
-                )
-            }
+            val weatherInfo = item.weather.firstOrNull()
+            val icon =
+                if (weatherInfo != null) {
+                    getWeatherIcon(weatherInfo.id, weatherInfo.main, weatherInfo.icon)
+                } else {
+                    -1
+                }
+
+            val temp = "${item.main.temp.roundToInt()}°"
+            val popPercent = ((item.pop ?: 0.0) * 100).roundToInt().coerceIn(0, 100)
+
+            ForecastDay(
+                dayName = timeLabel,
+                icon = icon,
+                tempHigh = temp,
+                tempLow = "",
+                pop = popPercent,
+            )
+        }
     }
+
+    private fun is24HourTimeFormat(): Boolean =
+        try {
+            when (GeneralPrefs.clockFormat) {
+                ClockType.HOUR_24 -> {
+                    true
+                }
+
+                ClockType.HOUR_12 -> {
+                    false
+                }
+
+                else -> {
+                    android.text.format.DateFormat
+                        .is24HourFormat(context)
+                }
+            }
+        } catch (t: Throwable) {
+            false
+        }
 
     fun getWeatherIcon(
         code: Int,
@@ -490,6 +537,7 @@ data class ForecastDay(
     val icon: Int = -1,
     val tempHigh: String = "",
     val tempLow: String = "",
+    val pop: Int = 0,
 )
 
 data class ForecastEvent(
@@ -519,4 +567,5 @@ data class WeatherDisplayConfig(
     val currentWeatherCity: String = "",
     val forecastCity: String = "",
     val forecastDays: Int = 5,
+    val is24Hour: Boolean = false,
 )

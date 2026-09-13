@@ -5,7 +5,9 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -24,35 +26,65 @@ class WeatherForecastOverlay
         context: Context,
         attrs: AttributeSet? = null,
         defStyleAttr: Int = 0,
-    ) : LinearLayout(context, attrs, defStyleAttr) {
+    ) : HorizontalScrollView(context, attrs, defStyleAttr) {
         var type = OverlayType.WEATHER2
         private var previousDays: List<ForecastDay>? = null
         var isHidden = false
 
+        private val contentLayout =
+            LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            }
+
         // Layout constants
         private val fadeAnimationDuration = 300L
         private val minVisibleAlphaForFade = 0.95f
-        private val cellSpacing = 24 // dp between day columns
-        private val elementMargin = 4 // dp between label/icon/temp
+        private val cellSpacing = 20 // dp between hourly columns
+        private val elementMargin = 4 // dp between elements
         private val iconScale = 1.1f // multiplier relative to text height
 
         // Text size multipliers (relative to base size)
         private val dayLabelSizeRatio = 0.8f
         private val tempSizeRatio = 0.8f
+        private val popSizeRatio = 0.65f
 
         // Text alpha (0-255)
         private val dayLabelAlpha = 200
         private val highTempAlpha = 230
         private val lowTempAlpha = 140
+        private val popAlpha = 230
 
         private var font = ""
         private var size = 0f
         private var weight = ""
 
         init {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = OVER_SCROLL_NEVER
+            isFillViewport = false
+            addView(contentLayout)
             alpha = 1f
+        }
+
+        override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    // Prevent parent from intercepting horizontal scroll gestures on touch
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+            }
+            return super.onInterceptTouchEvent(ev)
+        }
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            return super.onTouchEvent(ev)
         }
 
         fun style(
@@ -68,10 +100,10 @@ class WeatherForecastOverlay
         fun render(state: ForecastOverlayState) {
             val days = state.event.days
             if (days.isEmpty()) {
-                Timber.d("Forecast render: no days data yet")
+                Timber.d("Forecast render: no forecast data yet")
                 return
             }
-            Timber.d("Forecast render: ${days.size} days")
+            Timber.d("Forecast render: ${days.size} slots")
 
             if (previousDays == days) {
                 Timber.d("Forecast data unchanged, skipping UI update")
@@ -108,39 +140,56 @@ class WeatherForecastOverlay
         }
 
         private fun updateForecastContent(days: List<ForecastDay>) {
-            removeAllViews()
+            contentLayout.removeAllViews()
+            scrollTo(0, 0)
 
-            val iconSize = calculateIconSize(size)
+            val effectiveSize = if (size > 0f) size else 18f
+            val iconSize = calculateIconSize(effectiveSize)
             val density = resources.displayMetrics.density
             val spacingPx = (cellSpacing * density).toInt()
+            val hasPrecipitation = days.any { it.pop >= 10 }
 
             days.forEachIndexed { index, day ->
-                val column = createDayColumn(day, iconSize)
-                addView(column)
+                val column = createSlotColumn(day, effectiveSize, iconSize, hasPrecipitation)
+                contentLayout.addView(column)
 
                 if (index < days.size - 1) {
                     val spacer =
                         View(context).apply {
-                            layoutParams = LayoutParams(spacingPx, 0)
+                            layoutParams =
+                                LinearLayout.LayoutParams(
+                                    spacingPx,
+                                    0,
+                                )
                         }
-                    addView(spacer)
+                    contentLayout.addView(spacer)
                 }
             }
 
             Timber.d("Forecast content updated: ${days.size} columns, iconSize=$iconSize")
         }
 
-        private fun createDayColumn(
+        private fun createSlotColumn(
             day: ForecastDay,
+            effectiveSize: Float,
             iconSize: Int,
+            hasPrecipitation: Boolean,
         ): LinearLayout {
             val column =
                 LinearLayout(context).apply {
-                    orientation = VERTICAL
+                    orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+                    layoutParams =
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        )
                 }
 
+            val density = resources.displayMetrics.density
+            val elementMarginPx = (elementMargin * density).toInt()
+
+            // 1. Time label on top (e.g. "Now", "20", "23")
             val dayLabel =
                 TextView(context).apply {
                     text = day.dayName
@@ -148,34 +197,89 @@ class WeatherForecastOverlay
                     includeFontPadding = false
                 }
             TextViewCompat.setTextAppearance(dayLabel, R.style.OverlayText)
-            dayLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, size * dayLabelSizeRatio)
+            dayLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, effectiveSize * dayLabelSizeRatio)
             dayLabel.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
             val dayLabelOffset = FontHelper.getFontVerticalOffset(context, GeneralPrefs.fontTypeface, dayLabel.textSize)
             dayLabel.setPadding(0, dayLabelOffset, 0, -dayLabelOffset)
             dayLabel.setTextColor(Color.argb(dayLabelAlpha, 255, 255, 255))
-            val labelParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
-            labelParams.bottomMargin = elementMargin
+            val labelParams =
+                LinearLayout
+                    .LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        bottomMargin = elementMarginPx
+                    }
             dayLabel.layoutParams = labelParams
             column.addView(dayLabel)
 
+            // 2. Weather icon
             if (day.icon > 0) {
                 val iconView =
                     SvgImageView(context).apply {
                         setSvgResource(day.icon)
                     }
-                val iconParams = LayoutParams(iconSize, iconSize)
-                iconParams.gravity = Gravity.CENTER_HORIZONTAL
-                iconParams.bottomMargin = elementMargin
+                val iconParams =
+                    LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        if (!hasPrecipitation) {
+                            bottomMargin = elementMarginPx
+                        }
+                    }
                 iconView.layoutParams = iconParams
                 iconView.scaleType = ImageView.ScaleType.FIT_CENTER
                 column.addView(iconView)
+            } else {
+                val placeholder =
+                    View(context).apply {
+                        layoutParams =
+                            LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                                if (!hasPrecipitation) {
+                                    bottomMargin = elementMarginPx
+                                }
+                            }
+                    }
+                column.addView(placeholder)
             }
 
+            // 3. Rain percentage right below the icon (if precipitation exists in timeline)
+            if (hasPrecipitation) {
+                val popText = if (day.pop >= 10) "${day.pop}%" else ""
+                val popLabel =
+                    TextView(context).apply {
+                        text = popText
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                    }
+                TextViewCompat.setTextAppearance(popLabel, R.style.OverlayText)
+                popLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, effectiveSize * popSizeRatio)
+                popLabel.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+                val popOffset = FontHelper.getFontVerticalOffset(context, GeneralPrefs.fontTypeface, popLabel.textSize)
+                popLabel.setPadding(0, popOffset, 0, -popOffset)
+                popLabel.setTextColor(Color.argb(popAlpha, 100, 181, 246))
+                val popParams =
+                    LinearLayout
+                        .LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply {
+                            gravity = Gravity.CENTER_HORIZONTAL
+                            bottomMargin = elementMarginPx
+                        }
+                popLabel.layoutParams = popParams
+                column.addView(popLabel)
+            }
+
+            // 4. Temperature at the bottom (e.g. "26°")
             val tempContainer =
                 LinearLayout(context).apply {
-                    orientation = HORIZONTAL
+                    orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER
-                    layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+                    layoutParams =
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        )
                 }
 
             val highTemp =
@@ -185,33 +289,35 @@ class WeatherForecastOverlay
                     includeFontPadding = false
                 }
             TextViewCompat.setTextAppearance(highTemp, R.style.OverlayText)
-            highTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, size * tempSizeRatio)
+            highTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, effectiveSize * tempSizeRatio)
             highTemp.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
             val highTempOffset = FontHelper.getFontVerticalOffset(context, GeneralPrefs.fontTypeface, highTemp.textSize)
             highTemp.setPadding(0, highTempOffset, 0, -highTempOffset)
             highTemp.setTextColor(Color.argb(highTempAlpha, 255, 255, 255))
             tempContainer.addView(highTemp)
 
-            val separator =
-                TextView(context).apply {
-                    text = " "
-                    gravity = Gravity.CENTER
-                }
-            tempContainer.addView(separator)
+            if (day.tempLow.isNotEmpty()) {
+                val separator =
+                    TextView(context).apply {
+                        text = " "
+                        gravity = Gravity.CENTER
+                    }
+                tempContainer.addView(separator)
 
-            val lowTemp =
-                TextView(context).apply {
-                    text = day.tempLow
-                    gravity = Gravity.CENTER
-                    includeFontPadding = false
-                }
-            TextViewCompat.setTextAppearance(lowTemp, R.style.OverlayText)
-            lowTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, size * tempSizeRatio)
-            lowTemp.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
-            val lowTempOffset = FontHelper.getFontVerticalOffset(context, GeneralPrefs.fontTypeface, lowTemp.textSize)
-            lowTemp.setPadding(0, lowTempOffset, 0, -lowTempOffset)
-            lowTemp.setTextColor(Color.argb(lowTempAlpha, 255, 255, 255))
-            tempContainer.addView(lowTemp)
+                val lowTemp =
+                    TextView(context).apply {
+                        text = day.tempLow
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                    }
+                TextViewCompat.setTextAppearance(lowTemp, R.style.OverlayText)
+                lowTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, effectiveSize * tempSizeRatio)
+                lowTemp.typeface = FontHelper.getTypeface(context, GeneralPrefs.fontTypeface, weight)
+                val lowTempOffset = FontHelper.getFontVerticalOffset(context, GeneralPrefs.fontTypeface, lowTemp.textSize)
+                lowTemp.setPadding(0, lowTempOffset, 0, -lowTempOffset)
+                lowTemp.setTextColor(Color.argb(lowTempAlpha, 255, 255, 255))
+                tempContainer.addView(lowTemp)
+            }
 
             column.addView(tempContainer)
 
