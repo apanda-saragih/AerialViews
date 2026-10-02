@@ -196,4 +196,21 @@ object WeatherIcons {
             99 -> "Thunderstorm with heavy hail"
             else -> "Clear"
         }
+
+    /**
+     * Checks if a WMO weather code represents an active precipitation condition
+     * (drizzle, rain, snow, showers, thunderstorm)
+     */
+    fun isPrecipitationWeatherCode(weatherCode: Int): Boolean =
+        when (weatherCode) {
+            in 51..57, // Drizzle & Freezing drizzle
+            in 61..67, // Rain & Freezing rain
+            in 71..77, // Snow
+            in 80..82, // Rain showers
+            in 85..86, // Snow showers
+            in 95..99, // Thunderstorm
+            -> true
+
+            else -> false
+        }
 }

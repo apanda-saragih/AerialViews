@@ -206,7 +206,7 @@ internal class WeatherServiceTest {
         }
 
     @Test
-    @DisplayName("Should parse probability of precipitation into percentage")
+    @DisplayName("Should parse probability of precipitation into calibrated percentage")
     fun shouldParseProbabilityOfPrecipitation() {
         val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
         val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
@@ -219,11 +219,20 @@ internal class WeatherServiceTest {
                 utcOffsetSeconds = 0,
                 hourly =
                     OpenMeteoHourly(
-                        time = listOf(currentEpoch, currentEpoch + 3600, currentEpoch + 7200, currentEpoch + 10800),
-                        temperature2m = listOf(15.0, 18.0, 16.0, 14.0),
-                        precipitationProbability = listOf(0, 65, 20, null),
-                        weatherCode = listOf(0, 61, 61, 2),
-                        isDay = listOf(1, 1, 1, 1),
+                        time =
+                            listOf(
+                                currentEpoch,
+                                currentEpoch + 3600,
+                                currentEpoch + 7200,
+                                currentEpoch + 10800,
+                                currentEpoch + 14400,
+                                currentEpoch + 18000,
+                            ),
+                        temperature2m = listOf(15.0, 18.0, 16.0, 14.0, 13.0, 12.0),
+                        precipitationProbability = listOf(0, 65, 20, null, 94, 90),
+                        precipitation = listOf(0.0, 1.2, 0.1, 0.0, 0.0, 0.1),
+                        weatherCode = listOf(0, 61, 61, 2, 3, 51),
+                        isDay = listOf(1, 1, 1, 1, 1, 1),
                     ),
             )
 
@@ -236,11 +245,19 @@ internal class WeatherServiceTest {
                 is24Hour = false,
             )
 
-        assertEquals(4, event.days.size)
+        assertEquals(6, event.days.size)
+        // Clear sky (code 0) with 0.0mm -> 0%
         assertEquals(0, event.days[0].pop)
+        // Rain (code 61) with 1.2mm (> 0.5mm) -> raw 65%
         assertEquals(65, event.days[1].pop)
+        // Rain (code 61) with 0.1mm (< 0.2mm) -> min(20, 35) = 20%
         assertEquals(20, event.days[2].pop)
+        // Partly cloudy (code 2) with 0.0mm -> 0%
         assertEquals(0, event.days[3].pop)
+        // Overcast (code 3) with 0.0mm -> suppressed from raw 94% to 0%
+        assertEquals(0, event.days[4].pop)
+        // Light drizzle (code 51) with 0.1mm trace -> scaled from raw 90% to 35%
+        assertEquals(35, event.days[5].pop)
     }
 
     @Test

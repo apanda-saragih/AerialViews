@@ -12,7 +12,7 @@ interface OpenMeteoApi {
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("current") current: String = "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
-        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,weather_code,is_day",
+        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,weather_code,is_day",
         @Query("timezone") timezone: String = "auto",
         @Query("timeformat") timeformat: String = "unixtime",
         @Query("temperature_unit") temperatureUnit: String = "celsius",
@@ -54,6 +54,7 @@ data class OpenMeteoHourly(
     val time: List<Long> = emptyList(),
     @SerialName("temperature_2m") val temperature2m: List<Double> = emptyList(),
     @SerialName("precipitation_probability") val precipitationProbability: List<Int?> = emptyList(),
+    @SerialName("precipitation") val precipitation: List<Double> = emptyList(),
     @SerialName("weather_code") val weatherCode: List<Int> = emptyList(),
     @SerialName("is_day") val isDay: List<Int> = emptyList(),
 )

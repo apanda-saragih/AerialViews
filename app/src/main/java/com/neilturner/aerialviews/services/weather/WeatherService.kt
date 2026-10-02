@@ -374,10 +374,21 @@ class WeatherService(
                         .getOrNull(i)
                         ?.roundToInt()
                         ?.let { "$it°" } ?: ""
-                val pop = hourly.precipitationProbability.getOrNull(i) ?: 0
+                val rawPop = hourly.precipitationProbability.getOrNull(i) ?: 0
+                val rainAmount = hourly.precipitation.getOrNull(i) ?: 0.0
                 val code = hourly.weatherCode.getOrNull(i) ?: 0
                 val isDay = (hourly.isDay.getOrNull(i) ?: 1) == 1
                 val icon = WeatherIcons.getWmoWeatherIcon(code, isDay)
+                val isPrecipitation = WeatherIcons.isPrecipitationWeatherCode(code)
+
+                val pop =
+                    when {
+                        !isPrecipitation && rainAmount < 0.1 -> 0
+                        rainAmount == 0.0 -> minOf(rawPop, 20)
+                        rainAmount < 0.2 -> minOf(rawPop, 35)
+                        rainAmount < 0.5 -> minOf(rawPop, 60)
+                        else -> rawPop
+                    }.coerceIn(0, 100)
 
                 slots.add(
                     ForecastDay(
@@ -385,7 +396,7 @@ class WeatherService(
                         icon = icon,
                         tempHigh = temp,
                         tempLow = "",
-                        pop = pop.coerceIn(0, 100),
+                        pop = pop,
                     ),
                 )
 
