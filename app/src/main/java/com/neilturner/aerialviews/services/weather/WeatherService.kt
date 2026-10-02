@@ -20,6 +20,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.Locale
 import kotlin.math.round
 import kotlin.math.roundToInt
@@ -36,7 +37,7 @@ class WeatherService(
 
     private val lookupDelay = 1.seconds
     private val errorDelay = 3.seconds
-    private val updateDelay = 61.minutes
+    private val failureRetryDelay = 5.minutes
     private val rateLimitDelay = 1.minutes
     private val retryDelay = 30.seconds
 
@@ -131,10 +132,35 @@ class WeatherService(
                         }
                     if (result.weather != null) GlobalBus.post(result.weather)
                     if (result.forecast != null) GlobalBus.post(result.forecast)
-                    Timber.i("Next weather update in ${updateDelay.inWholeMinutes} minutes")
-                    delay(updateDelay)
+
+                    val delayMillis =
+                        if (result.weather == null && result.forecast == null && config != null) {
+                            val retryMillis = failureRetryDelay.inWholeMilliseconds
+                            Timber.w("Weather update failed, retrying in ${failureRetryDelay.inWholeMinutes} minutes")
+                            minOf(retryMillis, calculateDelayUntilNextHour())
+                        } else {
+                            calculateDelayUntilNextHour()
+                        }
+
+                    val delayMinutes = delayMillis / 60_000L
+                    Timber.i("Next weather update in $delayMinutes minute(s) at the top of the hour")
+                    delay(delayMillis)
                 }
             }
+    }
+
+    internal fun calculateDelayUntilNextHour(
+        calendar: Calendar = Calendar.getInstance(),
+        bufferMillis: Long = 5_000L,
+    ): Long {
+        val minutes = calendar.get(Calendar.MINUTE)
+        val seconds = calendar.get(Calendar.SECOND)
+        val millis = calendar.get(Calendar.MILLISECOND)
+
+        val elapsedMillisInHour = (minutes * 60 + seconds) * 1000L + millis
+        val remainingMillis = 3_600_000L - elapsedMillisInHour
+
+        return maxOf(bufferMillis, remainingMillis + bufferMillis)
     }
 
     internal fun buildRequestConfig(): WeatherRequestConfig? {

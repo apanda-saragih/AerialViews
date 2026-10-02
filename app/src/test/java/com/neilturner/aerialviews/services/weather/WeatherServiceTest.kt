@@ -11,6 +11,7 @@ import retrofit2.Response
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
+import java.util.Calendar
 
 @DisplayName("Weather Service Tests")
 internal class WeatherServiceTest {
@@ -276,6 +277,45 @@ internal class WeatherServiceTest {
             assertEquals(106.8451, results[0].lon, 0.001)
             assertEquals("Indonesia", results[0].country)
         }
+
+    @Test
+    @DisplayName("Should calculate delay until next hour with buffer")
+    fun shouldCalculateDelayUntilNextHour() {
+        val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
+
+        // 1. Exactly at 20:45:00.000 (15 minutes remaining until next hour)
+        val cal45 =
+            Calendar.getInstance().apply {
+                set(Calendar.MINUTE, 45)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+        val delay45 = service.calculateDelayUntilNextHour(calendar = cal45, bufferMillis = 5_000L)
+        // 15 min (900,000 ms) + 5s (5,000 ms) = 905,000 ms
+        assertEquals(905_000L, delay45)
+
+        // 2. 10 seconds before next hour (20:59:50.000)
+        val cal59 =
+            Calendar.getInstance().apply {
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 50)
+                set(Calendar.MILLISECOND, 0)
+            }
+        val delay59 = service.calculateDelayUntilNextHour(calendar = cal59, bufferMillis = 5_000L)
+        // 10s (10,000 ms) + 5s (5,000 ms) = 15,000 ms
+        assertEquals(15_000L, delay59)
+
+        // 3. Just after top of the hour (21:00:05.000)
+        val cal00 =
+            Calendar.getInstance().apply {
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 5)
+                set(Calendar.MILLISECOND, 0)
+            }
+        val delay00 = service.calculateDelayUntilNextHour(calendar = cal00, bufferMillis = 5_000L)
+        // (3600 - 5)s (3,595,000 ms) + 5s (5,000 ms) = 3,600,000 ms (exactly 1 hour)
+        assertEquals(3_600_000L, delay00)
+    }
 
     private fun requestConfig() =
         WeatherRequestConfig(
