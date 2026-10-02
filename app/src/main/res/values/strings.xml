@@ -532,8 +532,11 @@
     <string name="weather_forecast_slot3">Slot 3</string>
     <string name="weather_forecast_slot4">Slot 4</string>
 
-    <string name="weather_forecast_days_title">Forecast days</string>
-    <string name="weather_forecast_days_summary">Number of days to show in the forecast overlay</string>
+    <string name="weather_forecast_days_title">Forecast range</string>
+    <string name="weather_forecast_days_summary">Number of hours to show in the forecast timeline</string>
+    <string name="weather_hours_12">12 hours</string>
+    <string name="weather_hours_24">24 hours</string>
+    <string name="weather_hours_48">48 hours</string>
 
     <!-- Main / Settings / Overlays / Weather / Location -->
 

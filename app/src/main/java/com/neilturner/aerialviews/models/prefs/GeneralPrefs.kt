@@ -66,7 +66,14 @@ object GeneralPrefs : KotprefModel() {
     var weatherLine1Size by stringPref("18", "weather_line1_size")
     var weatherLine1Weight by stringPref("300", "weather_line1_weight")
 
-    var weatherLine2Days by stringPref("5", "weather_line2_days")
+    var weatherLine2Days by stringPref("24", "weather_line2_days")
+
+    val weatherForecastHours: Int
+        get() =
+            when (val hours = weatherLine2Days.toIntOrNull()) {
+                12, 24, 48 -> hours
+                else -> 24
+            }
     var weatherLine2Size by stringPref("18", "weather_line2_size")
     var weatherLine2Weight by stringPref("300", "weather_line2_weight")
 

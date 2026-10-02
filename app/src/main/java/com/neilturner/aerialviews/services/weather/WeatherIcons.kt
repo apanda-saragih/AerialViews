@@ -141,4 +141,59 @@ object WeatherIcons {
 
         return iconResource
     }
+
+    /**
+     * Maps WMO weather interpretation codes to appropriate drawable resources
+     * Reference: https://open-meteo.com/en/docs
+     */
+    fun getWmoWeatherIcon(
+        weatherCode: Int,
+        isDay: Boolean,
+    ): Int =
+        when (weatherCode) {
+            0 -> if (isDay) R.drawable.weather_clear else R.drawable.weather_clear_night
+            1, 2, 3 -> R.drawable.weather_cloudy_light
+            45, 48 -> R.drawable.weather_mist
+            51, 53, 61, 63, 80, 81 -> R.drawable.weather_rain_light
+            55, 56, 57, 65, 66, 67, 82 -> R.drawable.weather_rain_heavy
+            71, 73, 75, 77, 85, 86 -> R.drawable.weather_snow
+            95, 96, 99 -> R.drawable.weather_thunder
+            else -> if (isDay) R.drawable.weather_clear else R.drawable.weather_clear_night
+        }
+
+    /**
+     * Maps WMO weather interpretation codes to human-readable description
+     */
+    fun getWmoWeatherDescription(weatherCode: Int): String =
+        when (weatherCode) {
+            0 -> "Clear sky"
+            1 -> "Mainly clear"
+            2 -> "Partly cloudy"
+            3 -> "Overcast"
+            45 -> "Fog"
+            48 -> "Depositing rime fog"
+            51 -> "Light drizzle"
+            53 -> "Moderate drizzle"
+            55 -> "Dense drizzle"
+            56 -> "Light freezing drizzle"
+            57 -> "Dense freezing drizzle"
+            61 -> "Slight rain"
+            63 -> "Moderate rain"
+            65 -> "Heavy rain"
+            66 -> "Light freezing rain"
+            67 -> "Heavy freezing rain"
+            71 -> "Slight snow fall"
+            73 -> "Moderate snow fall"
+            75 -> "Heavy snow fall"
+            77 -> "Snow grains"
+            80 -> "Slight rain showers"
+            81 -> "Moderate rain showers"
+            82 -> "Violent rain showers"
+            85 -> "Slight snow showers"
+            86 -> "Heavy snow showers"
+            95 -> "Thunderstorm"
+            96 -> "Thunderstorm with slight hail"
+            99 -> "Thunderstorm with heavy hail"
+            else -> "Clear"
+        }
 }

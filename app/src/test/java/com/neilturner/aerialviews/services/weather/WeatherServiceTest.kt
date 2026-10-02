@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import retrofit2.Response
-import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
@@ -20,21 +19,21 @@ internal class WeatherServiceTest {
     @Test
     @DisplayName("Should map current weather response to weather event")
     fun shouldMapCurrentWeatherResponse() {
-        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
         val response =
-            CurrentWeatherResponse(
-                weather = listOf(Weather(id = 800, main = "Clear", description = "clear sky", icon = "01d")),
-                main =
-                    MainWeatherData(
-                        temp = 12.6,
-                        feelsLike = 11.2,
-                        tempMin = 10.0,
-                        tempMax = 14.0,
-                        pressure = 1012,
-                        humidity = 77,
+            OpenMeteoForecastResponse(
+                latitude = 53.3498,
+                longitude = -6.2603,
+                utcOffsetSeconds = 0,
+                current =
+                    OpenMeteoCurrent(
+                        time = 1712145600,
+                        temperature2m = 12.6,
+                        relativeHumidity2m = 77.0,
+                        weatherCode = 0,
+                        windSpeed10m = 9.8,
+                        isDay = 1,
                     ),
-                wind = Wind(speed = 9.8, deg = 180),
-                name = "Dublin",
             )
 
         val event = service.mapCurrentWeatherResponse(response, city = "Custom City")
@@ -47,22 +46,31 @@ internal class WeatherServiceTest {
     }
 
     @Test
-    @DisplayName("Should aggregate forecast response into 24 hour slots")
+    @DisplayName("Should aggregate forecast response into hourly slots")
     fun shouldAggregateForecastResponse() {
-        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
         val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
+        val currentEpoch = currentZoned.toEpochSecond()
+
+        val times = (0..26).map { currentEpoch + (it * 3600) }
+        val temps = (0..26).map { 15.0 + (it % 5) }
+        val pops = (0..26).map { 10 * (it % 10) }
+        val codes = (0..26).map { 1 }
+        val isDays = (0..26).map { 1 }
+
         val response =
-            FiveDayForecastResponse(
-                list =
-                    listOf(
-                        forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d"),
-                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "02d"),
-                        forecastItem("2026-04-03T18:00:00", 16.0, 10.0, "02d"),
-                        forecastItem("2026-04-04T00:00:00", 12.0, 8.0, "10d"),
-                        forecastItem("2026-04-04T12:00:00", 17.0, 11.0, "01d"),
-                        forecastItem("2026-04-05T12:00:00", 9.0, 4.0, "13d"), // 48h later, should be excluded
+            OpenMeteoForecastResponse(
+                latitude = 53.3498,
+                longitude = -6.2603,
+                utcOffsetSeconds = 0,
+                hourly =
+                    OpenMeteoHourly(
+                        time = times,
+                        temperature2m = temps,
+                        precipitationProbability = pops,
+                        weatherCode = codes,
+                        isDay = isDays,
                     ),
-                city = City(name = "Dublin", country = "IE", timezone = 0),
             )
 
         val event =
@@ -75,28 +83,35 @@ internal class WeatherServiceTest {
             )
 
         assertEquals("Custom City", event.city)
-        assertEquals(5, event.days.size)
+        assertEquals(24, event.days.size)
         assertEquals("Now", event.days[0].dayName)
         assertEquals("15°", event.days[0].tempHigh)
         assertEquals("", event.days[0].tempLow)
-        assertEquals("15", event.days[1].dayName)
-        assertEquals("18°", event.days[1].tempHigh)
+        assertEquals("13", event.days[1].dayName)
+        assertEquals("16°", event.days[1].tempHigh)
+        assertEquals("14", event.days[2].dayName)
     }
 
     @Test
     @DisplayName("Should format hours as 24-hour when requested")
     fun shouldFormatHoursAs24Hour() {
-        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
         val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
+        val currentEpoch = currentZoned.toEpochSecond()
+
         val response =
-            FiveDayForecastResponse(
-                list =
-                    listOf(
-                        forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d"),
-                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "02d"),
-                        forecastItem("2026-04-03T23:00:00", 11.0, 8.0, "02d"),
+            OpenMeteoForecastResponse(
+                latitude = 53.3498,
+                longitude = -6.2603,
+                utcOffsetSeconds = 0,
+                hourly =
+                    OpenMeteoHourly(
+                        time = listOf(currentEpoch, currentEpoch + 3600, currentEpoch + 7200),
+                        temperature2m = listOf(15.0, 18.0, 11.0),
+                        precipitationProbability = listOf(0, 20, 50),
+                        weatherCode = listOf(0, 1, 2),
+                        isDay = listOf(1, 1, 1),
                     ),
-                city = City(name = "Dublin", country = "IE", timezone = 0),
             )
 
         val event =
@@ -110,15 +125,15 @@ internal class WeatherServiceTest {
 
         assertEquals(3, event.days.size)
         assertEquals("Now", event.days[0].dayName)
-        assertEquals("15", event.days[1].dayName)
-        assertEquals("23", event.days[2].dayName)
+        assertEquals("13", event.days[1].dayName)
+        assertEquals("14", event.days[2].dayName)
     }
 
     @Test
-    @DisplayName("Should call only current weather endpoint when current weather requested")
+    @DisplayName("Should call forecast endpoint and populate current weather only")
     fun shouldFetchCurrentWeatherOnly() =
         runTest {
-            val api = FakeOpenWeatherApi()
+            val api = FakeOpenMeteoApi()
             val service = WeatherService(context, apiOverride = api)
 
             val result =
@@ -128,17 +143,16 @@ internal class WeatherServiceTest {
                     displayConfig = displayConfig(),
                 )
 
-            assertEquals(1, api.currentWeatherCalls)
-            assertEquals(0, api.forecastCalls)
+            assertEquals(1, api.forecastCalls)
             assertEquals("13°", result.weather?.temperature)
             assertNull(result.forecast)
         }
 
     @Test
-    @DisplayName("Should call only forecast endpoint when forecast requested")
+    @DisplayName("Should call forecast endpoint and populate forecast only")
     fun shouldFetchForecastOnly() =
         runTest {
-            val api = FakeOpenWeatherApi()
+            val api = FakeOpenMeteoApi()
             val service = WeatherService(context, apiOverride = api)
 
             val result =
@@ -148,17 +162,16 @@ internal class WeatherServiceTest {
                     displayConfig = displayConfig(),
                 )
 
-            assertEquals(0, api.currentWeatherCalls)
             assertEquals(1, api.forecastCalls)
             assertNull(result.weather)
             assertEquals(3, result.forecast?.days?.size)
         }
 
     @Test
-    @DisplayName("Should call both endpoints when both weather overlays are requested")
+    @DisplayName("Should call forecast endpoint and populate both current and forecast")
     fun shouldFetchCurrentWeatherAndForecast() =
         runTest {
-            val api = FakeOpenWeatherApi()
+            val api = FakeOpenMeteoApi()
             val service = WeatherService(context, apiOverride = api)
 
             val result =
@@ -168,7 +181,6 @@ internal class WeatherServiceTest {
                     displayConfig = displayConfig(),
                 )
 
-            assertEquals(1, api.currentWeatherCalls)
             assertEquals(1, api.forecastCalls)
             assertEquals("13°", result.weather?.temperature)
             assertEquals(3, result.forecast?.days?.size)
@@ -178,7 +190,7 @@ internal class WeatherServiceTest {
     @DisplayName("Should skip all API calls when no weather overlays are requested")
     fun shouldSkipApiCallsWhenNoWeatherRequests() =
         runTest {
-            val api = FakeOpenWeatherApi()
+            val api = FakeOpenMeteoApi()
             val service = WeatherService(context, apiOverride = api)
 
             val result =
@@ -188,7 +200,6 @@ internal class WeatherServiceTest {
                     displayConfig = displayConfig(),
                 )
 
-            assertEquals(0, api.currentWeatherCalls)
             assertEquals(0, api.forecastCalls)
             assertNull(result.weather)
             assertNull(result.forecast)
@@ -197,18 +208,23 @@ internal class WeatherServiceTest {
     @Test
     @DisplayName("Should parse probability of precipitation into percentage")
     fun shouldParseProbabilityOfPrecipitation() {
-        val service = WeatherService(context, apiOverride = FakeOpenWeatherApi())
+        val service = WeatherService(context, apiOverride = FakeOpenMeteoApi())
         val currentZoned = ZonedDateTime.of(2026, 4, 3, 12, 0, 0, 0, ZoneOffset.UTC)
+        val currentEpoch = currentZoned.toEpochSecond()
+
         val response =
-            FiveDayForecastResponse(
-                list =
-                    listOf(
-                        forecastItem("2026-04-03T12:00:00", 15.0, 9.0, "01d", pop = 0.0),
-                        forecastItem("2026-04-03T15:00:00", 18.0, 11.0, "10d", pop = 0.65),
-                        forecastItem("2026-04-03T18:00:00", 16.0, 10.0, "10d", pop = 0.20),
-                        forecastItem("2026-04-03T21:00:00", 14.0, 9.0, "02d", pop = null),
+            OpenMeteoForecastResponse(
+                latitude = 53.3498,
+                longitude = -6.2603,
+                utcOffsetSeconds = 0,
+                hourly =
+                    OpenMeteoHourly(
+                        time = listOf(currentEpoch, currentEpoch + 3600, currentEpoch + 7200, currentEpoch + 10800),
+                        temperature2m = listOf(15.0, 18.0, 16.0, 14.0),
+                        precipitationProbability = listOf(0, 65, 20, null),
+                        weatherCode = listOf(0, 61, 61, 2),
+                        isDay = listOf(1, 1, 1, 1),
                     ),
-                city = City(name = "Dublin", country = "IE", timezone = 0),
             )
 
         val event =
@@ -227,35 +243,26 @@ internal class WeatherServiceTest {
         assertEquals(0, event.days[3].pop)
     }
 
-    private fun forecastItem(
-        dateTime: String,
-        tempMax: Double,
-        tempMin: Double,
-        icon: String,
-        pop: Double? = null,
-    ): ForecastItem {
-        val instant = LocalDateTime.parse(dateTime).toEpochSecond(ZoneOffset.UTC)
-        return ForecastItem(
-            dt = instant,
-            main =
-                MainWeatherData(
-                    temp = tempMax,
-                    feelsLike = tempMax,
-                    tempMin = tempMin,
-                    tempMax = tempMax,
-                    pressure = 1000,
-                    humidity = 70,
-                ),
-            weather = listOf(Weather(id = 800, main = "Clear", description = "clear sky", icon = icon)),
-            wind = Wind(speed = 5.4, deg = 90),
-            dtTxt = dateTime.replace('T', ' '),
-            pop = pop,
-        )
-    }
+    @Test
+    @DisplayName("Should lookup location by name without requiring API key")
+    fun shouldLookupLocationByName() =
+        runTest {
+            val api = FakeOpenMeteoApi()
+            val service = WeatherService(context, apiOverride = api)
+
+            val results = service.lookupLocation("Jakarta")
+
+            assertEquals(1, api.locationCalls)
+            assertEquals(1, results.size)
+            assertEquals("Jakarta", results[0].name)
+            assertEquals(-6.2146, results[0].lat, 0.001)
+            assertEquals(106.8451, results[0].lon, 0.001)
+            assertEquals("Indonesia", results[0].country)
+        }
 
     private fun requestConfig() =
         WeatherRequestConfig(
-            apiKey = "key",
+            apiKey = "",
             lat = 53.3498,
             lon = -6.2603,
             units = "metric",
@@ -266,97 +273,74 @@ internal class WeatherServiceTest {
         WeatherDisplayConfig(
             currentWeatherCity = "Custom City",
             forecastCity = "Custom City",
-            forecastDays = 3,
+            forecastDays = 24,
         )
 }
 
-private class FakeOpenWeatherApi : OpenWeatherApi {
-    var currentWeatherCalls = 0
+private class FakeOpenMeteoApi : OpenMeteoApi {
     var forecastCalls = 0
-
-    override suspend fun getCurrentWeather(
-        lat: Double,
-        lon: Double,
-        apiKey: String,
-        units: String,
-        language: String,
-    ): Response<CurrentWeatherResponse> {
-        currentWeatherCalls++
-        return Response.success(
-            CurrentWeatherResponse(
-                weather = listOf(Weather(id = 800, main = "Clear", description = "clear sky", icon = "01d")),
-                main =
-                    MainWeatherData(
-                        temp = 12.6,
-                        feelsLike = 11.0,
-                        tempMin = 10.0,
-                        tempMax = 14.0,
-                        pressure = 1009,
-                        humidity = 75,
-                    ),
-                wind = Wind(speed = 9.5, deg = 180),
-                name = "Dublin",
-            ),
-        )
-    }
+    var locationCalls = 0
 
     override suspend fun getForecast(
         lat: Double,
         lon: Double,
-        apiKey: String,
-        units: String,
-        language: String,
-    ): Response<FiveDayForecastResponse> {
+        current: String,
+        hourly: String,
+        timezone: String,
+        timeformat: String,
+        temperatureUnit: String,
+        windSpeedUnit: String,
+        forecastDays: Int,
+    ): Response<OpenMeteoForecastResponse> {
         forecastCalls++
-        val now = LocalDateTime.now(ZoneOffset.UTC)
+        val now = LocalDateTime.now(ZoneOffset.UTC).toEpochSecond(ZoneOffset.UTC)
         return Response.success(
-            FiveDayForecastResponse(
-                list =
-                    listOf(
-                        fakeForecastItem(now.toString(), 15.0, 9.0),
-                        fakeForecastItem(now.plusHours(3).toString(), 17.0, 10.0),
-                        fakeForecastItem(now.plusHours(6).toString(), 14.0, 8.0),
+            OpenMeteoForecastResponse(
+                latitude = lat,
+                longitude = lon,
+                utcOffsetSeconds = 0,
+                current =
+                    OpenMeteoCurrent(
+                        time = now,
+                        temperature2m = 12.6,
+                        relativeHumidity2m = 75.0,
+                        weatherCode = 0,
+                        windSpeed10m = 9.5,
+                        isDay = 1,
                     ),
-                city = City(name = "Dublin", country = "IE", timezone = 0),
+                hourly =
+                    OpenMeteoHourly(
+                        time = listOf(now, now + 3600, now + 7200),
+                        temperature2m = listOf(15.0, 17.0, 14.0),
+                        precipitationProbability = listOf(0, 20, 40),
+                        weatherCode = listOf(0, 1, 2),
+                        isDay = listOf(1, 1, 1),
+                    ),
             ),
         )
     }
 
-    override suspend fun getLocationByName(
-        locationName: String,
-        limit: Int,
-        apiKey: String,
+    override suspend fun searchLocation(
+        query: String,
+        count: Int,
         language: String,
-    ): Response<List<LocationResponse>> = Response.success(emptyList())
-
-    override suspend fun getLocationByCoordinates(
-        lat: Double,
-        lon: Double,
-        limit: Int,
-        apiKey: String,
-        language: String,
-    ): Response<List<LocationResponse>> = Response.success(emptyList())
-
-    private fun fakeForecastItem(
-        dateTime: String,
-        tempMax: Double,
-        tempMin: Double,
-    ): ForecastItem {
-        val instant = LocalDateTime.parse(dateTime).toEpochSecond(ZoneOffset.UTC)
-        return ForecastItem(
-            dt = instant,
-            main =
-                MainWeatherData(
-                    temp = tempMax,
-                    feelsLike = tempMax,
-                    tempMin = tempMin,
-                    tempMax = tempMax,
-                    pressure = 1000,
-                    humidity = 70,
-                ),
-            weather = listOf(Weather(id = 800, main = "Clear", description = "clear sky", icon = "01d")),
-            wind = Wind(speed = 5.0, deg = 90),
-            dtTxt = dateTime.replace('T', ' '),
+        format: String,
+    ): Response<OpenMeteoGeocodingResponse> {
+        locationCalls++
+        return Response.success(
+            OpenMeteoGeocodingResponse(
+                results =
+                    listOf(
+                        OpenMeteoLocationItem(
+                            id = 1642911,
+                            name = "Jakarta",
+                            latitude = -6.2146,
+                            longitude = 106.8451,
+                            country = "Indonesia",
+                            admin1 = "Jakarta",
+                        ),
+                    ),
+            ),
         )
     }
 }

@@ -1387,14 +1387,16 @@
     <string name="weather_days_3">3 days</string>
     <string name="weather_days_5">5 days</string>
     <string-array name="weather_forecast_days_entries" translatable="false">
-        <item>@string/weather_days_3</item>
-        <item>@string/weather_days_5</item>
+        <item>@string/weather_hours_12</item>
+        <item>@string/weather_hours_24</item>
+        <item>@string/weather_hours_48</item>
     </string-array>
     <string-array name="weather_forecast_days_values" translatable="false">
-        <item>3</item>
-        <item>5</item>
+        <item>12</item>
+        <item>24</item>
+        <item>48</item>
     </string-array>
-    <string name="weather_forecast_days_default" translatable="false">3</string>
+    <string name="weather_forecast_days_default" translatable="false">24</string>
 
     <!-- Background Colors -->
     <string name="bg_color_black">Black</string>
