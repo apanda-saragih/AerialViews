@@ -145,6 +145,13 @@ class OverlayHelper(
                     val screenWidth = context.resources.displayMetrics.widthPixels
                     view.maxWidth = screenWidth - marginPx * 2
                 }
+                if (view is WeatherForecastOverlay) {
+                    val marginPx = context.resources.getDimensionPixelSize(R.dimen.screen_border_padding)
+                    val screenWidth = context.resources.displayMetrics.widthPixels
+                    val usableWidth = screenWidth - marginPx * 2
+                    val centerGapPx = marginPx
+                    view.maxWidth = (usableWidth - centerGapPx) / 2
+                }
             }
         }
 

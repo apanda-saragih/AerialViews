@@ -30,6 +30,11 @@ class WeatherForecastOverlay
         var type = OverlayType.WEATHER2
         private var previousDays: List<ForecastDay>? = null
         var isHidden = false
+        var maxWidth: Int = 0
+            set(value) {
+                field = value
+                requestLayout()
+            }
 
         private val contentLayout =
             LinearLayout(context).apply {
@@ -85,6 +90,30 @@ class WeatherForecastOverlay
                 }
             }
             return super.onTouchEvent(ev)
+        }
+
+        override fun onMeasure(
+            widthMeasureSpec: Int,
+            heightMeasureSpec: Int,
+        ) {
+            val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+            val widthSize = MeasureSpec.getSize(widthMeasureSpec)
+            val constrainedWidthSpec =
+                if (maxWidth > 0) {
+                    val constrainedSize =
+                        if (widthMode == MeasureSpec.UNSPECIFIED) {
+                            maxWidth
+                        } else {
+                            minOf(widthSize, maxWidth)
+                        }
+                    MeasureSpec.makeMeasureSpec(constrainedSize, MeasureSpec.AT_MOST)
+                } else {
+                    widthMeasureSpec
+                }
+            super.onMeasure(constrainedWidthSpec, heightMeasureSpec)
+            if (maxWidth > 0 && measuredWidth > maxWidth) {
+                setMeasuredDimension(maxWidth, measuredHeight)
+            }
         }
 
         fun style(
